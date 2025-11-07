@@ -1,0 +1,41 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: booking-service
+  data:
+    mongodb:
+      # Update to your Mongo connection string (replica set if using Mongo transactions)
+      uri: mongodb://localhost:27017/booking_service_db
+  jackson:
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: false
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+
+feign:
+  client:
+    config:
+      default:
+        loggerLevel: FULL
+
+# If you are calling downstream services directly via service discovery,
+# set these names to the service IDs registered in Eureka.
+# If you are calling through an API Gateway (recommended), set them to the gateway's service ID
+# (e.g., api-gateway) and ensure the paths in Feign clients match gateway routes.
+time-slot-service:
+  name: api-gateway
+user-profile-service:
+  name: api-gateway
+modification-catalog-service:
+  name: api-gateway
+
+logging:
+  level:
+    com.example.bookingservice: DEBUG
+    org.springframework.cloud.openfeign: DEBUG
+

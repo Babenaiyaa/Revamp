@@ -1,118 +1,179 @@
 package com.example.bookingservice.controller;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.LocalDate;
+import java.util.List;
+
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
-import java.util.Map;
+import com.example.bookingservice.dto.BookingRequest;
+import com.example.bookingservice.dto.BookingResponse;
+import com.example.bookingservice.dto.TimeSlotResponseDto;
+import com.example.bookingservice.dto.UpdateBookingStatusRequest;
+import com.example.bookingservice.exception.ResourceNotFoundException;
+import com.example.bookingservice.model.Appointment;
+import com.example.bookingservice.model.RemoteModificationItemDto;
+import com.example.bookingservice.model.RemoteVehicleDto;
+import com.example.bookingservice.service.AppointmentService;
 
-@RestController
-@RequestMapping("/api/bookings")
-@Tag(name = "Booking Controller", description = "Operations for managing bookings")
+@RestController // Marks this class as a REST controller
+@RequestMapping("/api/bookings") // Base path for all endpoints in this controller
 public class BookingController {
 
-    @Operation(
-            summary = "Get all bookings",
-            description = "Retrieve a list of all bookings in the system"
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Successfully retrieved bookings"),
-        @ApiResponse(responseCode = "500", description = "Internal server error")
-    })
-    @GetMapping
-    public ResponseEntity<Map<String, Object>> getAllBookings() {
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "List of all bookings");
-        response.put("status", "success");
-        return ResponseEntity.ok(response);
+    private final AppointmentService appointmentService; // Inject your service layer
+
+    // Constructor for dependency injection
+    public BookingController(AppointmentService appointmentService) {
+        this.appointmentService = appointmentService;
     }
 
-    @Operation(
-            summary = "Get booking by ID",
-            description = "Retrieve a specific booking by its ID"
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Successfully retrieved booking"),
-        @ApiResponse(responseCode = "404", description = "Booking not found"),
-        @ApiResponse(responseCode = "500", description = "Internal server error")
-    })
-    @GetMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> getBookingById(
-            @Parameter(description = "ID of the booking to retrieve", required = true)
-            @PathVariable Long id) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Booking details for ID: " + id);
-        response.put("bookingId", id);
-        response.put("status", "success");
-        return ResponseEntity.ok(response);
-    }
-
-    @Operation(
-            summary = "Create a new booking",
-            description = "Create a new booking in the system"
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "201", description = "Booking created successfully"),
-        @ApiResponse(responseCode = "400", description = "Invalid input"),
-        @ApiResponse(responseCode = "500", description = "Internal server error")
-    })
+    // --- Customer-Facing Endpoints ---
+    /**
+     * Endpoint for customers to create a new service appointment or
+     * modification project booking.
+     *
+     * @param request The BookingRequest DTO containing all details.
+     * @return ResponseEntity with BookingResponse and HTTP status (201 CREATED
+     * on success, 400 BAD REQUEST on error).
+     */
     @PostMapping
-    public ResponseEntity<Map<String, Object>> createBooking(
-            @Parameter(description = "Booking details", required = true)
-            @RequestBody Map<String, Object> bookingData) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Booking created successfully");
-        response.put("bookingData", bookingData);
-        response.put("status", "success");
-        return ResponseEntity.status(201).body(response);
+    public ResponseEntity<BookingResponse> createBooking(@RequestBody BookingRequest request) {
+        try {
+            BookingResponse response = appointmentService.createBooking(request);
+            return new ResponseEntity<>(response, HttpStatus.CREATED);
+        } catch (IllegalArgumentException | ResourceNotFoundException e) {
+            // Catch specific business logic errors and resource not found errors
+            return ResponseEntity.badRequest().body(new BookingResponse(null, null, e.getMessage()));
+        } catch (Exception e) {
+            // Catch any other unexpected errors during booking creation
+            System.err.println("Error creating booking: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new BookingResponse(null, null, "An unexpected error occurred during booking creation."));
+        }
     }
 
-    @Operation(
-            summary = "Update an existing booking",
-            description = "Update an existing booking by its ID"
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Booking updated successfully"),
-        @ApiResponse(responseCode = "404", description = "Booking not found"),
-        @ApiResponse(responseCode = "400", description = "Invalid input"),
-        @ApiResponse(responseCode = "500", description = "Internal server error")
-    })
-    @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> updateBooking(
-            @Parameter(description = "ID of the booking to update", required = true)
-            @PathVariable Long id,
-            @Parameter(description = "Updated booking details", required = true)
-            @RequestBody Map<String, Object> bookingData) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Booking updated successfully");
-        response.put("bookingId", id);
-        response.put("updatedData", bookingData);
-        response.put("status", "success");
-        return ResponseEntity.ok(response);
+    /**
+     * Endpoint for customers to view a specific booking's details.
+     *
+     * @param id The ID of the booking.
+     * @return ResponseEntity with the Appointment object and HTTP status (200
+     * OK, 404 NOT FOUND).
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<Appointment> getBookingDetails(@PathVariable String id) {
+        try {
+            Appointment appointment = appointmentService.getBookingById(id);
+            return ResponseEntity.ok(appointment);
+        } catch (ResourceNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
-    @Operation(
-            summary = "Delete a booking",
-            description = "Delete an existing booking by its ID"
-    )
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Booking deleted successfully"),
-        @ApiResponse(responseCode = "404", description = "Booking not found"),
-        @ApiResponse(responseCode = "500", description = "Internal server error")
-    })
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> deleteBooking(
-            @Parameter(description = "ID of the booking to delete", required = true)
-            @PathVariable Long id) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Booking deleted successfully");
-        response.put("bookingId", id);
-        response.put("status", "success");
-        return ResponseEntity.ok(response);
+    /**
+     * Endpoint for customers to view all their bookings.
+     *
+     * @param customerId The ID of the customer.
+     * @return ResponseEntity with a list of Appointment objects and HTTP status
+     * (200 OK).
+     */
+    @GetMapping("/customer/{customerId}")
+    public ResponseEntity<List<Appointment>> getCustomerBookings(@PathVariable String customerId) {
+        List<Appointment> bookings = appointmentService.getBookingsByCustomerId(customerId);
+        return ResponseEntity.ok(bookings);
+    }
+
+    /**
+     * Endpoint to get available time slots for a specific date from the
+     * external Time Slot Service. This is called by the frontend when a
+     * customer selects a date.
+     *
+     * @param date The date in YYYY-MM-DD format.
+     * @return ResponseEntity with a list of TimeSlotResponseDto and HTTP status
+     * (200 OK).
+     */
+    @GetMapping("/time-slots/available")
+    public ResponseEntity<List<TimeSlotResponseDto>> getAvailableTimeSlots(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        List<TimeSlotResponseDto> timeSlots = appointmentService.getAvailableTimeSlots(date);
+        return ResponseEntity.ok(timeSlots);
+    }
+
+    /**
+     * Endpoint to get a list of registered vehicles for a customer from the
+     * external User Profile Service. This is called by the frontend to
+     * pre-populate vehicle selection for a customer.
+     *
+     * @param customerId The ID of the customer.
+     * @return ResponseEntity with a list of RemoteVehicleDto and HTTP status
+     * (200 OK).
+     */
+    @GetMapping("/customer/{customerId}/vehicles")
+    public ResponseEntity<List<RemoteVehicleDto>> getCustomerRegisteredVehicles(@PathVariable String customerId) {
+        List<RemoteVehicleDto> vehicles = appointmentService.getCustomerRegisteredVehicles(customerId);
+        return ResponseEntity.ok(vehicles);
+    }
+
+    /**
+     * Endpoint to get all available modification options from the external
+     * Modification Catalog Service. This is called by the frontend to display
+     * checkboxes for modification project booking.
+     *
+     * @return ResponseEntity with a list of RemoteModificationItemDto and HTTP
+     * status (200 OK).
+     */
+    @GetMapping("/modification-options")
+    public ResponseEntity<List<RemoteModificationItemDto>> getAllModificationOptions() {
+        List<RemoteModificationItemDto> modificationItems = appointmentService.getAllRemoteModificationItems();
+        return ResponseEntity.ok(modificationItems);
+    }
+
+    // --- Admin/Employee-Facing Endpoints ---
+    // These would typically be secured with role-based access control (e.g., using Spring Security)
+    /**
+     * Endpoint for administrators to view all bookings that are currently in
+     * 'PENDING' status.
+     *
+     * @return ResponseEntity with a list of Appointment objects and HTTP status
+     * (200 OK).
+     */
+    @GetMapping("/admin/pending")
+    public ResponseEntity<List<Appointment>> getAllPendingBookings() {
+        List<Appointment> pendingBookings = appointmentService.getAllPendingBookings();
+        return ResponseEntity.ok(pendingBookings);
+    }
+
+    /**
+     * Endpoint for administrators or employees to update the status of a
+     * booking, assign an employee, or add admin remarks.
+     *
+     * @param id The ID of the booking to update.
+     * @param request The UpdateBookingStatusRequest DTO with the new status and
+     * other details.
+     * @return ResponseEntity with the updated Appointment object and HTTP
+     * status (200 OK, 404 NOT FOUND, 400 BAD REQUEST).
+     */
+    @PutMapping("/{id}/status")
+    public ResponseEntity<Appointment> updateBookingStatus(
+            @PathVariable String id,
+            @RequestBody UpdateBookingStatusRequest request) {
+        try {
+            Appointment updatedAppointment = appointmentService.updateBookingStatus(id, request);
+            return ResponseEntity.ok(updatedAppointment);
+        } catch (ResourceNotFoundException e) {
+            return ResponseEntity.notFound().build(); // Booking not found
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build(); // Invalid status transition or data
+        } catch (Exception e) {
+            System.err.println("Error updating booking status for ID " + id + ": " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build(); // Unexpected error
+        }
     }
 }
